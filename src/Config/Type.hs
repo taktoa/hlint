@@ -104,6 +104,7 @@ data Restrict = Restrict
     ,restrictName :: [String]
     ,restrictAs :: [String] -- for RestrictModule only, what module names you can import it as
     ,restrictWithin :: [(String, String)]
+    ,restrictNotes :: [String]
     } deriving Show
 
 data Setting

@@ -39,19 +39,23 @@ restrictHint settings scope m =
 data RestrictItem = RestrictItem
     {riAs :: [String]
     ,riWithin :: [(String, String)]
+    ,riNotes :: [String]
     }
 instance Semigroup RestrictItem where
-    RestrictItem x1 x2 <> RestrictItem y1 y2 = RestrictItem (x1<>y1) (x2<>y2)
+    RestrictItem x1 x2 x3 <> RestrictItem y1 y2 y3
+      = RestrictItem (x1<>y1) (x2<>y2) (x3<>y3)
 instance Monoid RestrictItem where
-    mempty = RestrictItem [] []
+    mempty = RestrictItem [] [] []
     mappend = (<>)
 
 restrictions :: [Setting] -> Map.Map RestrictType (Bool, Map.Map String RestrictItem)
 restrictions settings = Map.map f $ Map.fromListWith (++) [(restrictType x, [x]) | SettingRestrict x <- settings]
     where
+        f :: [Restrict] -> (Bool, Map.Map String RestrictItem)
         f rs = (all restrictDefault rs
-               ,Map.fromListWith (<>) [(s, RestrictItem restrictAs restrictWithin) | Restrict{..} <- rs, s <- restrictName])
+               ,Map.fromListWith (<>) [(s, RestrictItem restrictAs restrictWithin restrictNotes) | Restrict{..} <- rs, s <- restrictName])
 
+ideaAddNotes notes w = w { ideaNote = ideaNote w ++ notes }
 ideaMayBreak w = w{ideaNote=[Note "may break the code"]}
 ideaNoTo w = w{ideaTo=Nothing}
 
@@ -85,7 +89,7 @@ checkImports modu imp (def, mp) =
       then ideaNoTo $ warn "Avoid restricted module" i i []
       else warn "Avoid restricted qualification" i i{importAs=ModuleName an <$> listToMaybe riAs} []
     | i@ImportDecl{..} <- imp
-    , let ri@RestrictItem{..} = Map.findWithDefault (RestrictItem [] [("","") | def]) (fromModuleName importModule) mp
+    , let ri@RestrictItem{..} = Map.findWithDefault (RestrictItem [] [("","") | def] []) (fromModuleName importModule) mp
     , let allowImport = within modu "" ri
     , let allowQual = maybe True (\x -> null riAs || fromModuleName x `elem` riAs) importAs
     , not allowImport || not allowQual
@@ -94,9 +98,16 @@ checkImports modu imp (def, mp) =
 
 checkFunctions :: String -> [Decl_] -> (Bool, Map.Map String RestrictItem) -> [Idea]
 checkFunctions modu decls (def, mp) =
-    [ (ideaMayBreak $ ideaNoTo $ warn "Avoid restricted function" x x []){ideaDecl = [dname]}
+    [ ((if null notes
+        then ideaMayBreak
+        else ideaAddNotes (map Note notes))
+       $ ideaNoTo
+       $ warn "Avoid restricted function" x x [])
+      {ideaDecl = [dname]}
     | d <- decls
     , let dname = fromNamed d
     , x <- universeBi d :: [QName S]
-    , not $ maybe def (within modu dname) $ Map.lookup (fromNamed x) mp
+    , let ri = Map.lookup (fromNamed x) mp
+    , not $ maybe def (within modu dname) ri
+    , let notes = maybe [] riNotes ri
     ]
